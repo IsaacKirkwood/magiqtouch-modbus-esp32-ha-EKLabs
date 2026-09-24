@@ -5,7 +5,7 @@ from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
 from .coordinator import MTMODCoordinator
 
 DOMAIN = "magiqtouch_modbus"
-PLATFORMS = ["climate"]
+PLATFORMS = ["climate", "select"]
 
 async def async_setup(hass: HomeAssistant, config: dict):
     return True  # Only needed for legacy YAML config
