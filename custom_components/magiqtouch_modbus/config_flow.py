@@ -24,6 +24,9 @@ class MagiqtouchModbusConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 hvac_url = f"http://{hvac_url}"
             user_input["HVAC URL"] = hvac_url
 
+            await self.async_set_unique_id(hvac_url.lower())
+            self._abort_if_unique_id_configured()
+
             # Test if API is reachable
             session = aiohttp_client.async_get_clientsession(self.hass)
             try:
