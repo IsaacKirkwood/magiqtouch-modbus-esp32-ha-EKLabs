@@ -52,7 +52,7 @@ class MagiqCoolControlSource(CoordinatorEntity, SelectEntity):
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
-            identifiers={(DOMAIN, self.api_url)},
+            identifiers={(DOMAIN, self._config_entry.entry_id)},
             name="Magiqtouch ESP32 Controller",
             model="Modbus ESP32 Interface",
             configuration_url=self.api_url,

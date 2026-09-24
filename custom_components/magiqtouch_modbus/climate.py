@@ -17,9 +17,6 @@ from homeassistant.helpers.device_registry import DeviceInfo
 
 DOMAIN = "magiqtouch_modbus"
 _LOGGER = logging.getLogger(__name__)
-MagiqtouchZones = []
-
-
 async def async_setup_entry(hass, config_entry, async_add_entities):
     coordinator = hass.data[DOMAIN][config_entry.entry_id]
     zone_count = config_entry.data["Zones"]  
@@ -35,6 +32,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     
     #Determine modes per zone.
     #[HVACMode.OFF, HVACMode.COOL, HVACMode.HEAT, HVACMode.FAN_ONLY]
+    magiqtouch_zones = []
     for ZoneIndex in range(zone_count):
         supportedmodes = [HVACMode.OFF]
         if ZoneIndex == 0: #Evap cooler and fan only controlled by zone 1.
@@ -45,9 +43,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 supportedmodes.append(HVACMode.HEAT)   
         zone_index = ZoneIndex + 1
         zone_entity = MagiqtouchZone(coordinator,config_entry,zone_index,supportedmodes)
-        MagiqtouchZones.append(zone_entity)
+        magiqtouch_zones.append(zone_entity)
         
-    async_add_entities(MagiqtouchZones)
+    async_add_entities(magiqtouch_zones)
 
 
 
@@ -155,7 +153,7 @@ class MagiqtouchZone(CoordinatorEntity,ClimateEntity):
     @property
     def device_info(self) ->DeviceInfo:
         return DeviceInfo(
-            identifiers={(DOMAIN, self.api_url)},
+            identifiers={(DOMAIN, self._config_entry.entry_id)},
             name="Magiqtouch ESP32 Controller",
             model="Modbus ESP32 Interface",
             configuration_url=self.api_url
