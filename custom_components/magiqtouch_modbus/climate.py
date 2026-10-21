@@ -16,6 +16,7 @@ from homeassistant.components.climate.const import (
 from .coordinator import MTMODCoordinator
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.exceptions import HomeAssistantError
 
 DOMAIN = "magiqtouch_modbus"
 _LOGGER = logging.getLogger(__name__)
@@ -78,50 +79,70 @@ class MagiqtouchZone(CoordinatorEntity,ClimateEntity):
         session = aiohttp_client.async_get_clientsession(self.hass)
         timeout = ClientTimeout(total=20, connect=5, sock_read=15)
         commandurl = self.api_url.rstrip("/") + "/command"
+        last_status = None
         for attempt in range(2):
             try:
-                async with session.post(commandurl, data=payload, timeout=timeout) as response:
+                async with session.post(
+                    commandurl,
+                    data=payload,
+                    headers={"Content-Type": "text/plain"},
+                    timeout=timeout,
+                ) as response:
                     await response.read()
                     if response.status == 200:
                         return
+                    last_status = response.status
                     _LOGGER.error(
                         "Failed to send command %s. Server: %s Response Status: %s",
                         payload,
                         commandurl,
                         response.status,
                     )
+                    response.raise_for_status()
             except (ClientError, asyncio.TimeoutError) as ex:
                 if attempt == 1:
-                    _LOGGER.error("Command %s failed after retry: %s", payload, ex)
-                    raise
+                    _LOGGER.error("Command %s failed after retry: %r", payload, ex)
+                    raise HomeAssistantError(
+                        f"Magiqtouch command {payload} failed: {ex!r}"
+                    ) from ex
                 await asyncio.sleep(1)
+        raise HomeAssistantError(
+            f"Magiqtouch command {payload} failed: HTTP {last_status} from {commandurl}"
+        )
+
+    async def _async_send_commands(self, *payloads):
+        for payload in payloads:
+            await self.send_hvac_command(payload)
+        self.hass.async_create_task(self.coordinator.async_request_refresh())
 
     #Mode Change.
     async def async_set_hvac_mode(self, new_hvac_mode: str):
         if new_hvac_mode == HVACMode.FAN_ONLY:
-            await self.send_hvac_command("mode=0")
+            commands = ["mode=0"]
         elif new_hvac_mode == HVACMode.AUTO:
-            await self.send_hvac_command("mode=1")
+            commands = ["mode=1"]
         elif new_hvac_mode == HVACMode.COOL:
-            await self.send_hvac_command("mode=2")
+            commands = ["mode=2"]
         elif new_hvac_mode == HVACMode.HEAT:
-            await self.send_hvac_command("mode=4")
-            await self.send_hvac_command(f"zone{self.zone}=on")
+            commands = ["mode=4", f"zone{self.zone}=on"]
+        else:
+            commands = []
 
         if new_hvac_mode == HVACMode.OFF:
-            await self.send_hvac_command("power=off")
+            commands.append("power=off")
         else:
-            await self.send_hvac_command("power=on")
+            commands.append("power=on")
+        await self._async_send_commands(*commands)
 
     async def async_set_fan_mode(self, new_fan_mode: str):  
         if self.coordinator.data == None:
-            return
+            raise HomeAssistantError("Magiqtouch controller status is unavailable")
         systemmode = self.coordinator.data.get('system_mode')
         #Automatic Temperature
         if systemmode == 2:
             if new_fan_mode == "Temperature":
                 command = "mode=3"
-                await self.send_hvac_command(command)
+                await self._async_send_commands(command)
                 return
         #Manual Fan Speed
         elif systemmode == 3:
@@ -129,15 +150,15 @@ class MagiqtouchZone(CoordinatorEntity,ClimateEntity):
                 command = "mode=2"
                 await self.send_hvac_command(command)
         command = f"fanspeed={new_fan_mode}"         
-        await self.send_hvac_command(command)
+        await self._async_send_commands(command)
         
     
         
     async def async_turn_on(self):
-        await self.send_hvac_command("power=on")
+        await self._async_send_commands("power=on")
 
     async def async_turn_off(self):
-        await self.send_hvac_command("power=off")
+        await self._async_send_commands("power=off")
 
 
     async def async_set_temperature(self, **kwargs):
@@ -145,22 +166,26 @@ class MagiqtouchZone(CoordinatorEntity,ClimateEntity):
         if self.zone == 1:
             zoneprefix = ""
         bodytext = "temp" + zoneprefix + "=" + str(int(kwargs.get("temperature")))
-        await self.send_hvac_command(bodytext)
+        await self._async_send_commands(bodytext)
         
 
     async def async_set_swing_mode(self, swing_mode: str):
         if swing_mode == "Zone Open":
-            await self.send_hvac_command(f"zone{self.zone}=on")        
+            await self._async_send_commands(f"zone{self.zone}=on")
         elif swing_mode == "Zone Closed":
-            await self.send_hvac_command(f"zone{self.zone}=off")            
+            await self._async_send_commands(f"zone{self.zone}=off")
         elif swing_mode == "External":
-            await self.send_hvac_command("mode=0")
+            await self._async_send_commands("mode=0")
         elif swing_mode == "Recycle":
-            await self.send_hvac_command("mode=1")
+            await self._async_send_commands("mode=1")
 
   
         
         
+    @property
+    def available(self):
+        return super().available and self.coordinator.data is not None
+
     @property
     def unique_id(self):
         return self._attr_unique_id
@@ -265,7 +290,9 @@ class MagiqtouchZone(CoordinatorEntity,ClimateEntity):
         systemmode = self.coordinator.data.get('system_mode')
         systempower = self.coordinator.data.get('system_power')
         FAN_MODES = ["1","2","3","4","5","6","7","8","9","10"]
-        if systemmode == 4 or systempower == 0:
+        if systempower == 0:
+            return FAN_MODES
+        if systemmode == 4:
             return None
         elif systemmode == 2 or systemmode == 3:
             #Cooler Modes - add Temperature to Fan speed options.
