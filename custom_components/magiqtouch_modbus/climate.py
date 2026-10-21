@@ -76,6 +76,14 @@ class MagiqtouchZone(CoordinatorEntity,ClimateEntity):
    
     #Command Section
     async def send_hvac_command(self, payload):
+        data = self.coordinator.data
+        if data is None:
+            raise HomeAssistantError("Magiqtouch controller status is unavailable")
+        if data.get("controller_protocol") == "magiqcool":
+            if self.coordinator.wall_control_requested or not data.get("magiqcool_override", False):
+                raise HomeAssistantError(
+                    "Magiqtouch is set to Wall controller; select Home Assistant control first"
+                )
         session = aiohttp_client.async_get_clientsession(self.hass)
         timeout = ClientTimeout(total=20, connect=5, sock_read=15)
         commandurl = self.api_url.rstrip("/") + "/command"
@@ -210,7 +218,16 @@ class MagiqtouchZone(CoordinatorEntity,ClimateEntity):
             return None
         systemmode = self.coordinator.data.get('system_mode')
         hvacmode = None
-        if self.coordinator.data.get('system_power') == 0:
+        if self.coordinator.data.get('controller_protocol') == 'magiqcool':
+            if self.coordinator.data.get('magiqcool_override'):
+                powered = self.coordinator.data.get('magiqcool_requested_power')
+            else:
+                # MagIQcool can report system_power=1 while the panel is idle.
+                operating_state = self.coordinator.data.get('magiqcool_operating_state')
+                powered = operating_state is not None and operating_state != 1
+        else:
+            powered = self.coordinator.data.get('system_power') != 0
+        if not powered:
             hvacmode = HVACMode.OFF
         elif systemmode == 0:
             hvacmode = HVACMode.FAN_ONLY

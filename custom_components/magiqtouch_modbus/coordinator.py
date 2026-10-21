@@ -25,6 +25,9 @@ class MTMODCoordinator(DataUpdateCoordinator):
         self.session = aiohttp_client.async_get_clientsession(hass)
         self.lastresult = None
         self.failcount = 0
+        # Blocks climate commands immediately while a Wall controller selection
+        # is in flight, before the next status poll sees override=off.
+        self.wall_control_requested = False
 
     async def _async_update(self):
         timeout = ClientTimeout(total=20, connect=5, sock_read=15)

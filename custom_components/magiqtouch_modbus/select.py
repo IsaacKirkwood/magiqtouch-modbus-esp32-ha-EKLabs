@@ -59,6 +59,9 @@ class MagiqCoolControlSource(CoordinatorEntity, SelectEntity):
         )
 
     async def async_select_option(self, option: str):
+        previous_wall_control_requested = self.coordinator.wall_control_requested
+        if option == WALL_CONTROLLER:
+            self.coordinator.wall_control_requested = True
         payload = "override=on" if option == HOME_ASSISTANT else "override=off"
         command_url = self.api_url.rstrip("/") + "/command"
         session = aiohttp_client.async_get_clientsession(self.hass)
@@ -70,6 +73,7 @@ class MagiqCoolControlSource(CoordinatorEntity, SelectEntity):
                 headers={"Content-Type": "text/plain"},
             ) as response:
                 if response.status != 200:
+                    self.coordinator.wall_control_requested = previous_wall_control_requested
                     _LOGGER.error(
                         "Failed to select control source %s. Server returned %s",
                         option,
@@ -77,7 +81,10 @@ class MagiqCoolControlSource(CoordinatorEntity, SelectEntity):
                     )
                     return
         except Exception:
+            self.coordinator.wall_control_requested = previous_wall_control_requested
             _LOGGER.exception("Failed to select MagIQcool control source %s", option)
             return
 
+        if option == HOME_ASSISTANT:
+            self.coordinator.wall_control_requested = False
         await self.coordinator.async_request_refresh()
