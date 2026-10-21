@@ -1,11 +1,13 @@
 import logging
-import aiohttp
 import asyncio
+
+from aiohttp import ClientError, ClientTimeout
 
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import HVACMode
 from homeassistant.const import UnitOfTemperature
 from homeassistant import config_entries
+from homeassistant.helpers import aiohttp_client
 from datetime import timedelta
 from typing import Callable, List
 from homeassistant.components.climate.const import (
@@ -73,19 +75,32 @@ class MagiqtouchZone(CoordinatorEntity,ClimateEntity):
    
     #Command Section
     async def send_hvac_command(self, payload):
-        async with aiohttp.ClientSession() as session:
-            commandurl = self.api_url + "/command"
-            if str(self.api_url).endswith('/') == 1:
-                commandurl = self.api_url + "command"
-            async with session.post(commandurl, data=payload) as response:
-                if response.status != 200:
-                    _LOGGER.error(f"Failed to send command {payload}. Server: {commandurl} Response Status: {response.status}")
+        session = aiohttp_client.async_get_clientsession(self.hass)
+        timeout = ClientTimeout(total=20, connect=5, sock_read=15)
+        commandurl = self.api_url.rstrip("/") + "/command"
+        for attempt in range(2):
+            try:
+                async with session.post(commandurl, data=payload, timeout=timeout) as response:
+                    await response.read()
+                    if response.status == 200:
+                        return
+                    _LOGGER.error(
+                        "Failed to send command %s. Server: %s Response Status: %s",
+                        payload,
+                        commandurl,
+                        response.status,
+                    )
+            except (ClientError, asyncio.TimeoutError) as ex:
+                if attempt == 1:
+                    _LOGGER.error("Command %s failed after retry: %s", payload, ex)
+                    raise
+                await asyncio.sleep(1)
 
     #Mode Change.
     async def async_set_hvac_mode(self, new_hvac_mode: str):
         if new_hvac_mode == HVACMode.FAN_ONLY:
             await self.send_hvac_command("mode=0")
-        elif new_hvac_mode == HVACMode.FAN_ONLY:
+        elif new_hvac_mode == HVACMode.AUTO:
             await self.send_hvac_command("mode=1")
         elif new_hvac_mode == HVACMode.COOL:
             await self.send_hvac_command("mode=2")
