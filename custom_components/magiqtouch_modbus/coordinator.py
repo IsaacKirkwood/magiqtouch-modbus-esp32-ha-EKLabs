@@ -36,7 +36,20 @@ class MTMODCoordinator(DataUpdateCoordinator):
                 response.raise_for_status()
                 self.lastresult = await response.json(content_type=None)
                 self.failcount = 0
-                return self.lastresult
+            if (
+                self.lastresult.get("ha_heartbeat_supported")
+                and self.lastresult.get("magiqcool_override")
+                and not self.wall_control_requested
+            ):
+                async with self.session.post(
+                    self.url.rstrip("/") + "/command",
+                    data="heartbeat=ha",
+                    headers={"Content-Type": "text/plain"},
+                    timeout=timeout,
+                ) as heartbeat_response:
+                    heartbeat_response.raise_for_status()
+                    await heartbeat_response.read()
+            return self.lastresult
         except (ClientError, asyncio.TimeoutError) as ex:
             _LOGGER.warning("Error getting status from HVAC Magiqtouch Modbus Interface: %s", ex)
             if self.failcount < 5:

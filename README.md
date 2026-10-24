@@ -36,8 +36,13 @@ If a climate command fails, check the Home Assistant log for `magiqtouch_modbus`
 
 ### Recent fixes
 
+### Home Assistant heartbeat (v1.1.7)
+
+When firmware advertises `ha_heartbeat_supported`, successful HA polls renew its ownership lease with `heartbeat=ha` while Home Assistant owns control. The heartbeat never takes ownership from the wall controller. Compatible firmware starts in wall control after reboot and returns to wall control after 120 seconds without a heartbeat or accepted control command. Older firmware receives no heartbeat requests. This change requires a separate ESP32 firmware deployment to enable fallback when HA goes offline.
+
 | Version | Changes |
 | --- | --- |
+| 1.1.7 | Renew compatible firmware's HA ownership lease while HA owns control; preserve deliberate wall-panel selection. Requires a separate firmware update for offline fallback. |
 | 1.1.6 | Prevent Zone climate commands while Wall controller is selected; correct the idle MagIQcool climate state. |
 | 1.1.5 | Improve climate command errors and status refresh; keep fan speed controls available while off. |
 | 1.1.4 | Improve HTTP polling and command timeout handling during intermittent ESP32 responses. |
